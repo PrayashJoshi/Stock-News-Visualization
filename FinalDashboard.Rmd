@@ -1,0 +1,164 @@
+---
+author: "Prayash Joshi"
+title: "Financial News Visualization Dashboard"
+date: "`r Sys.Date()`"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: column
+    vertical_layout: fill
+    social: ["github"]
+    github:
+      icon: fa-github
+      href: "https://github.com/yourusername/yourrepository"
+    theme: united
+---
+
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(plotly)
+library(DT)
+library(tidyverse)
+library(htmltools)
+library(htmlwidgets)
+```
+
+```{r, warning=FALSE, include=FALSE}
+#load csv 
+apple_intraday<- read.csv("AAPL_intraday.csv")
+summary(apple_intraday)
+str(apple_intraday)
+
+apple_news <- read.csv("combined_news_df.csv")
+summary(apple_news)
+str(apple_news)
+```
+
+```{r, warning=FALSE, include=FALSE}
+# Convert 'timestamp'
+apple_intraday$timestamp <- as.POSIXct(apple_intraday$timestamp, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+apple_news$time_published <- as.POSIXct(apple_news$time_published, format="%Y-%m-%d %H:%M:%S", tz="UTC")
+
+# Round down to the nearest 15-minute interval
+apple_news$timestamp <- apple_news$time_published
+apple_news$timestamp <- round_date(apple_news$timestamp, "minute")
+# Round down to the nearest 15-minute interval
+apple_news$timestamp <- round_date(apple_news$timestamp, "15 mins")
+```
+
+```{r, warning=FALSE, include=FALSE}
+
+# Merge the datasets based on the newly created rounded timestamp
+merged_data <- merge(apple_intraday, apple_news, by = "timestamp", all.x = TRUE)
+# Update marker color assignment based on sentiment score
+merged_data$marker_color <- ifelse(merged_data$ticker_sentiment_score > 0, "green", "red")
+
+# if NA, make the points transparent
+merged_data$marker_color[is.na(merged_data$marker_color)] <- "transparent"
+```
+
+```{r, warning=FALSE, include=FALSE}
+
+
+```
+
+Column { data-width=800}
+-------------------------------------
+
+### AAPL
+
+
+```{r, warning=FALSE, include=FALSE}
+# Define dimensions
+plot_width <- 800
+
+# Create the primary price plot
+p_close <- plot_ly(data = apple_intraday, x = ~timestamp, y = ~close, type = 'scatter', mode = 'lines',
+                   line = list(color = 'blue')) %>%
+          layout(title = "",
+                 xaxis = list(title = "Date"),
+                 yaxis = list(title = "Close Price"),
+                 width = plot_width,
+                 showlegend = FALSE) %>%
+          layout(hovermode = 'closest')
+ 
+
+# Adding news event bubbles with corrected color mapping
+p_close <- add_trace(p_close, data = merged_data, x = ~timestamp, y = ~close, type = 'scatter', mode = 'markers',
+                     marker = list(size = 6, color = ~marker_color, opacity = 0.8),
+                     customdata = ~paste(title, source, summary, ticker_sentiment_score, ticker_sentiment_label, sep = "<br>"))
+  
+
+
+# Plotting the volume of Apple without a title, with adjusted smaller height
+p_volume <- plot_ly(data = apple_intraday, x = ~timestamp, y = ~volume, type = 'bar', marker = list(color = 'red')) %>%
+            layout(title = "",
+                   xaxis = list(title = "Date", showticklabels = FALSE),  # Hide x-axis labels for cleaner design
+                   yaxis = list(title = "Volume"),
+                   width = plot_width,
+                   showlegend = FALSE)
+
+# Synchronize x-axes for zoom and pan
+ax <- list(
+  showgrid = FALSE,
+  zeroline = FALSE,
+  showline = FALSE,
+  autotick = TRUE,
+  ticks = '',
+  showticklabels = FALSE
+)
+
+sync_layout <- subplot(p_close, p_volume, heights = c(0.7, 0.3), nrows = 2, shareX = TRUE, which_layout = "merge") %>%
+  layout(xaxis = list(title = "Date", showticklabels = TRUE), xaxis2 = ax) %>%
+  config(tooltip = list(innerHTML = '<b>Click point to see details</b>')) %>%
+  onRender("
+    function(el, x) {
+      var plot = document.getElementById(el.id);
+      plot.on('plotly_click', function(data) {
+        var info = data.points[0].customdata.split('<br>');
+        var timestamp = data.points[0].x;
+        var closePrice = data.points[0].y;
+
+        if(info[0].includes('NA')) {
+          document.getElementById('news-info').innerHTML = 
+            '<p><strong>No News Sources Available</strong> at ' + timestamp + ' - Close Price: ' + closePrice + '</p>' + 
+                        '<hr>' + 
+            '<p style=\"color: gray;\">Detailed news analysis updated in real-time. Click on other markers to explore more.</p>';
+            
+        } else {
+          document.getElementById('news-info').innerHTML = 
+            '<h4><strong>' + info[0] + '</strong></h4>' + 
+            '<h6>' + info[1] + '</h6>' + 
+            '<hr>' + 
+            '<p>' + info[2] + '</p>' + 
+            '<p><strong>Sentiment Score:</strong> ' + info[3] + ' (' + info[4] + ')</p>' +
+            '<hr>' + 
+            '<p style=\"color: gray;\">Detailed news analysis updated in real-time. Click on other markers to explore more.</p>';
+        }
+      });
+    }
+  ")
+
+```
+
+
+
+```{r}
+sync_layout
+```
+
+
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+###
+
+<div id="news-info" style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; height: 400px; overflow-y: auto;">
+  <p>Select a news marker to see details here.</p>
+</div>
+
+
+
+### Plot stuff goes here
